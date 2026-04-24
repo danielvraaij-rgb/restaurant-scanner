@@ -1,22 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import type { Analysis } from "@/lib/scoreModel";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-interface Analysis {
-  noWebsite: boolean;
-  pageSpeed: number | null;
-  mobileFriendly: boolean | null;
-  ssl: boolean | null;
-  hasMetaDescription: boolean | null;
-  hasStructuredData: boolean | null;
-}
 
 interface ManualScore {
-  designScore: number | null;
-  menuOnline: boolean | null;
-  onlineReservation: boolean | null;
-  foodPhotos: boolean | null;
   notes: string;
 }
 
@@ -33,40 +22,7 @@ interface Restaurant {
   manual: ManualScore | null;
 }
 
-// ─── Scoring ────────────────────────────────────────────────────────────────
-function calcAutoScore(a: Analysis | null): number | null {
-  if (!a) return null;
-  if (a.noWebsite) return 0;
-  let score = 0, max = 0;
-  if (a.pageSpeed != null) { score += (a.pageSpeed / 100) * 20; max += 20; }
-  if (a.mobileFriendly != null) { score += a.mobileFriendly ? 15 : 0; max += 15; }
-  if (a.ssl != null) { score += a.ssl ? 10 : 0; max += 10; }
-  if (a.hasMetaDescription != null) { score += a.hasMetaDescription ? 10 : 0; max += 10; }
-  if (a.hasStructuredData != null) { score += a.hasStructuredData ? 15 : 0; max += 15; }
-  return max === 0 ? null : Math.round((score / max) * 100);
-}
-
-function calcManualScore(m: ManualScore | null): number | null {
-  if (!m) return null;
-  let score = 0, max = 0;
-  if (m.designScore != null) { score += (m.designScore / 5) * 30; max += 30; }
-  if (m.menuOnline != null) { score += m.menuOnline ? 25 : 0; max += 25; }
-  if (m.onlineReservation != null) { score += m.onlineReservation ? 25 : 0; max += 25; }
-  if (m.foodPhotos != null) { score += m.foodPhotos ? 20 : 0; max += 20; }
-  return max === 0 ? null : Math.round((score / max) * 100);
-}
-
-function calcProspect(r: Restaurant): number | null {
-  const reviewScore = r.rating ? (r.rating / 5) * 100 : 50;
-  const auto = calcAutoScore(r.analysis);
-  const manual = calcManualScore(r.manual);
-  let ws: number | null = null;
-  if (auto != null && manual != null) ws = auto * 0.5 + manual * 0.5;
-  else if (auto != null) ws = auto;
-  else if (manual != null) ws = manual;
-  if (ws === null) return null;
-  return Math.round(reviewScore * (1 - ws / 100));
-}
+// ─── Prospect label ──────────────────────────────────────────────────────────
 
 function prospectLabel(s: number | null) {
   if (s === null) return { text: "Niet beoordeeld", color: "#6b7280", bg: "#6b728015" };
@@ -77,6 +33,7 @@ function prospectLabel(s: number | null) {
 }
 
 // ─── Small Components ───────────────────────────────────────────────────────
+
 function ScoreRing({ score, size = 40 }: { score: number | null; size?: number }) {
   const color = score === null ? "#374151" : score >= 80 ? "#059669" : score >= 60 ? "#f59e0b" : score >= 40 ? "#ef4444" : "#dc2626";
   const r = (size - 4) / 2;
@@ -109,48 +66,43 @@ function Stars({ rating }: { rating: number }) {
   );
 }
 
-function CheckRow({ label, value, good }: { label: string; value: string; good: boolean }) {
-  return (
-    <div className="flex justify-between items-center px-3 py-1.5 bg-[#0d0f12] rounded">
-      <span className="text-xs text-gray-400">{label}</span>
-      <span className={`text-xs font-semibold font-mono ${good ? "text-emerald-400" : "text-red-400"}`}>{value}</span>
-    </div>
-  );
-}
+// ─── Pijler bar ─────────────────────────────────────────────────────────────
 
-function Toggle({ label, value, onChange }: { label: string; value: boolean | null; onChange: (v: boolean) => void }) {
+function PijlerBar({ label, score, max }: { label: string; score: number; max: number }) {
+  const pct = Math.round((score / max) * 100);
+  const color = pct >= 70 ? "#059669" : pct >= 40 ? "#f59e0b" : "#ef4444";
   return (
-    <div className="flex justify-between items-center">
-      <span className="text-xs text-gray-400">{label}</span>
-      <div className="flex gap-1">
-        <button onClick={(e) => { e.stopPropagation(); onChange(true); }}
-          className={`px-2.5 py-1 rounded text-[11px] border transition-colors ${value === true ? "bg-emerald-700 border-emerald-600 text-white" : "bg-[#1a1d24] border-gray-700 text-gray-500 hover:border-gray-500"}`}>Ja</button>
-        <button onClick={(e) => { e.stopPropagation(); onChange(false); }}
-          className={`px-2.5 py-1 rounded text-[11px] border transition-colors ${value === false ? "bg-red-700 border-red-600 text-white" : "bg-[#1a1d24] border-gray-700 text-gray-500 hover:border-gray-500"}`}>Nee</button>
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-400 w-20 shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 bg-[#1f2937] rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: color }}/>
       </div>
+      <span className="text-xs font-mono text-gray-400 w-10 text-right">{score}/{max}</span>
     </div>
   );
 }
 
 // ─── Restaurant Card ────────────────────────────────────────────────────────
+
 function Card({ restaurant, onAnalyze, onManual, busy }: {
-  restaurant: Restaurant; onAnalyze: (id: string) => void;
-  onManual: (id: string, m: ManualScore) => void; busy: boolean;
+  restaurant: Restaurant;
+  onAnalyze: (id: string) => void;
+  onManual: (id: string, m: ManualScore) => void;
+  busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [manual, setManual] = useState<ManualScore>(
-    restaurant.manual || { designScore: null, menuOnline: null, onlineReservation: null, foodPhotos: null, notes: "" }
-  );
+  const [notes, setNotes] = useState(restaurant.manual?.notes ?? "");
 
-  const auto = calcAutoScore(restaurant.analysis);
-  const man = calcManualScore(manual);
-  const prospect = calcProspect({ ...restaurant, manual });
+  const a = restaurant.analysis;
+  const inhoudPct = a ? Math.round((a.pijlers.inhoud / 45) * 100) : null;
+  const conversiePct = a ? Math.round((a.pijlers.conversie / 25) * 100) : null;
+  const prospect = a?.prospectScore ?? null;
   const pl = prospectLabel(prospect);
 
-  const setField = (field: keyof ManualScore, value: any) => {
-    const updated = { ...manual, [field]: value };
-    setManual(updated);
-    onManual(restaurant.place_id, updated);
+  const saveNotes = (value: string) => {
+    setNotes(value);
+    onManual(restaurant.place_id, { notes: value });
   };
 
   return (
@@ -181,12 +133,12 @@ function Card({ restaurant, onAnalyze, onManual, busy }: {
         </div>
 
         <div className="text-center">
-          <ScoreRing score={auto} size={36}/>
-          <div className="text-[9px] text-gray-500 mt-0.5 font-mono">AUTO</div>
+          <ScoreRing score={inhoudPct} size={36}/>
+          <div className="text-[9px] text-gray-500 mt-0.5 font-mono">INHOUD</div>
         </div>
         <div className="text-center">
-          <ScoreRing score={man} size={36}/>
-          <div className="text-[9px] text-gray-500 mt-0.5 font-mono">HAND</div>
+          <ScoreRing score={conversiePct} size={36}/>
+          <div className="text-[9px] text-gray-500 mt-0.5 font-mono">CONV</div>
         </div>
         <div className="text-center">
           <ScoreRing score={prospect} size={48}/>
@@ -197,52 +149,43 @@ function Card({ restaurant, onAnalyze, onManual, busy }: {
       {open && (
         <div className="border-t border-[#1e2028] p-5">
           <div className="grid grid-cols-2 gap-6">
+            {/* Links: analyse resultaten */}
             <div>
-              <h4 className="text-xs text-gray-500 uppercase tracking-widest font-mono mb-3">Automatische analyse</h4>
-              {!restaurant.analysis ? (
+              <h4 className="text-xs text-gray-500 uppercase tracking-widest font-mono mb-3">Analyse</h4>
+              {!a ? (
                 <button onClick={(e) => { e.stopPropagation(); onAnalyze(restaurant.place_id); }}
                   disabled={busy}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${busy ? "bg-gray-800 text-gray-500 cursor-wait" : "bg-blue-600 text-white hover:bg-blue-500 cursor-pointer"}`}>
                   {busy ? "Bezig..." : "Analyseer website"}
                 </button>
-              ) : restaurant.analysis.noWebsite ? (
+              ) : a.noWebsite ? (
                 <div className="px-4 py-3 bg-red-900/20 rounded-lg text-red-300 text-sm">
-                  Geen website gevonden — perfecte prospect!
+                  Geen website — beste prospect!
                 </div>
               ) : (
-                <div className="flex flex-col gap-1.5">
-                  <CheckRow label="PageSpeed" value={restaurant.analysis.pageSpeed != null ? `${restaurant.analysis.pageSpeed}/100` : "N/A"} good={(restaurant.analysis.pageSpeed ?? 0) >= 70}/>
-                  <CheckRow label="Mobielvriendelijk" value={restaurant.analysis.mobileFriendly ? "Ja" : "Nee"} good={!!restaurant.analysis.mobileFriendly}/>
-                  <CheckRow label="SSL / HTTPS" value={restaurant.analysis.ssl ? "Ja" : "Nee"} good={!!restaurant.analysis.ssl}/>
-                  <CheckRow label="Meta description" value={restaurant.analysis.hasMetaDescription ? "Ja" : "Nee"} good={!!restaurant.analysis.hasMetaDescription}/>
-                  <CheckRow label="Structured data" value={restaurant.analysis.hasStructuredData ? "Ja" : "Nee"} good={!!restaurant.analysis.hasStructuredData}/>
+                <div className="flex flex-col gap-2">
+                  <PijlerBar label="Inhoud" score={a.pijlers.inhoud} max={45}/>
+                  <PijlerBar label="Conversie" score={a.pijlers.conversie} max={25}/>
+                  <PijlerBar label="UX" score={a.pijlers.ux} max={20}/>
+                  <PijlerBar label="Techniek" score={a.pijlers.tech} max={10}/>
+                  <div className="mt-2 pt-2 border-t border-[#1e2028] flex justify-between text-xs font-mono">
+                    <span className="text-gray-500">Totaal</span>
+                    <span className="text-gray-300">{a.totaalScore}/100</span>
+                  </div>
+                  <div className="text-[10px] text-gray-600 font-mono mt-1">
+                    Menu: {a.checks.menuDetail} · Reservering: {a.checks.reserveringDetail} · LCP: {a.checks.lcpMs}ms
+                  </div>
                 </div>
               )}
             </div>
 
+            {/* Rechts: notities + links */}
             <div>
-              <h4 className="text-xs text-gray-500 uppercase tracking-widest font-mono mb-3">Handmatige beoordeling</h4>
+              <h4 className="text-xs text-gray-500 uppercase tracking-widest font-mono mb-3">Notities</h4>
               <div className="flex flex-col gap-2.5">
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Design kwaliteit</label>
-                  <div className="flex gap-1">
-                    {[1,2,3,4,5].map(n => (
-                      <button key={n} onClick={(e) => { e.stopPropagation(); setField("designScore", n); }}
-                        className={`w-8 h-8 rounded text-sm font-semibold font-mono border transition-colors ${manual.designScore === n ? "bg-blue-600 border-blue-500 text-white" : "bg-[#1a1d24] border-gray-700 text-gray-500 hover:border-gray-500"}`}>
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <Toggle label="Menukaart online" value={manual.menuOnline} onChange={v => setField("menuOnline", v)}/>
-                <Toggle label="Online reserveren" value={manual.onlineReservation} onChange={v => setField("onlineReservation", v)}/>
-                <Toggle label="Foto's van gerechten" value={manual.foodPhotos} onChange={v => setField("foodPhotos", v)}/>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Notities</label>
-                  <textarea value={manual.notes} onChange={e => setField("notes", e.target.value)}
-                    onClick={e => e.stopPropagation()} placeholder="Observaties, contactinfo..."
-                    className="w-full p-2 bg-[#1a1d24] border border-gray-700 rounded text-xs text-gray-200 resize-y min-h-[60px] outline-none focus:border-gray-500 transition-colors"/>
-                </div>
+                <textarea value={notes} onChange={e => saveNotes(e.target.value)}
+                  onClick={e => e.stopPropagation()} placeholder="Observaties, contactinfo..."
+                  className="w-full p-2 bg-[#1a1d24] border border-gray-700 rounded text-xs text-gray-200 resize-y min-h-[80px] outline-none focus:border-gray-500 transition-colors"/>
                 <div className="flex gap-2 mt-1">
                   {restaurant.website && (
                     <a href={restaurant.website} target="_blank" rel="noopener noreferrer"
@@ -269,6 +212,7 @@ function Card({ restaurant, onAnalyze, onManual, busy }: {
 }
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
+
 export default function Home() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(false);
@@ -359,36 +303,34 @@ export default function Home() {
 
     try {
       if (!r.website) {
-        setRestaurants(prev => prev.map(x => x.place_id === placeId ? {
-          ...x, analysis: { noWebsite: true, pageSpeed: null, mobileFriendly: false, ssl: false, hasMetaDescription: false, hasStructuredData: false }
-        } : x));
+        const noWebsiteAnalysis: Analysis = {
+          noWebsite: true,
+          scoredAt: new Date().toISOString(),
+          scoreModelVersion: '2.0',
+          totaalScore: 0,
+          prospectScore: 100,
+          pijlers: { inhoud: 0, conversie: 0, ux: 0, tech: 0 },
+          checks: {
+            menuScore: 0, menuDetail: 'geen_website',
+            adresScore: 0, tijdenScore: 0, fotoScore: 0, verhaalScore: 0,
+            reserveringScore: 0, reserveringDetail: 'geen_website',
+            telefoonScore: 0, emailScore: 0,
+            mobileScore: 0, mobileDetail: 'geen_website',
+            speedScore: 0, lcpMs: 0, deadLinkScore: 0,
+            httpsScore: 0, metaDescScore: 0, structuredScore: 0,
+          },
+        };
+        setRestaurants(prev => prev.map(x =>
+          x.place_id === placeId ? { ...x, analysis: noWebsiteAnalysis } : x
+        ));
         return;
       }
 
-      const analysis: Analysis = {
-        noWebsite: false, pageSpeed: null, mobileFriendly: null,
-        ssl: null, hasMetaDescription: null, hasStructuredData: null,
-      };
-
-      analysis.ssl = r.website.startsWith("https");
-
-      try {
-        const psRes = await fetch(`/api/pagespeed?url=${encodeURIComponent(r.website)}`);
-        const psData = await psRes.json();
-        if (psData.lighthouseResult) {
-          const perf = psData.lighthouseResult.categories?.performance?.score;
-          analysis.pageSpeed = perf != null ? Math.round(perf * 100) : null;
-          analysis.mobileFriendly = psData.lighthouseResult.audits?.["viewport"]?.score === 1;
-          analysis.hasMetaDescription = psData.lighthouseResult.audits?.["meta-description"]?.score === 1;
-          analysis.hasStructuredData = false;
-          const diag = JSON.stringify(psData.lighthouseResult.audits || {});
-          if (diag.includes("application/ld+json") || diag.includes("schema.org") || diag.includes("itemtype")) {
-            analysis.hasStructuredData = true;
-          }
-        }
-      } catch {}
-
-      setRestaurants(prev => prev.map(x => x.place_id === placeId ? { ...x, analysis } : x));
+      const res = await fetch(`/api/analyze?url=${encodeURIComponent(r.website)}`);
+      const analysis: Analysis = await res.json();
+      setRestaurants(prev => prev.map(x =>
+        x.place_id === placeId ? { ...x, analysis } : x
+      ));
     } finally {
       setAnalyzing(null);
     }
@@ -410,7 +352,8 @@ export default function Home() {
 
   const sorted = [...restaurants].sort((a, b) => {
     if (sortBy === "prospect") {
-      const sa = calcProspect(a), sb = calcProspect(b);
+      const sa = a.analysis?.prospectScore ?? null;
+      const sb = b.analysis?.prospectScore ?? null;
       if (sa == null && sb == null) return 0;
       if (sa == null) return 1;
       if (sb == null) return -1;
@@ -419,7 +362,8 @@ export default function Home() {
     if (sortBy === "rating") return (b.rating || 0) - (a.rating || 0);
     if (sortBy === "reviews") return (b.reviewCount || 0) - (a.reviewCount || 0);
     if (sortBy === "website") {
-      const sa = calcAutoScore(a.analysis), sb = calcAutoScore(b.analysis);
+      const sa = a.analysis?.totaalScore ?? null;
+      const sb = b.analysis?.totaalScore ?? null;
       if (sa == null && sb == null) return 0;
       if (sa == null) return 1;
       if (sb == null) return -1;
@@ -429,7 +373,7 @@ export default function Home() {
   });
 
   const analyzed = restaurants.filter(r => r.analysis).length;
-  const hot = restaurants.filter(r => { const s = calcProspect(r); return s != null && s >= 70; }).length;
+  const hot = restaurants.filter(r => (r.analysis?.prospectScore ?? 0) >= 70).length;
   const noSite = restaurants.filter(r => !r.website).length;
 
   return (
