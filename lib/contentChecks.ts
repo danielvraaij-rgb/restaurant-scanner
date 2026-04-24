@@ -3,20 +3,42 @@ import type { Checks } from "./scoreModel";
 
 // ─── Menu detectie (0-15 punten) ─────────────────────────────────────────────
 
-const PRICE_REGEX = /[€$£]\s?\d+[.,]\d{0,2}|\d+[.,]\d{2}\s?[€$£]|\d+,-/g;
+// Matcht: €12, €12,50, €12.50, 12,50€, 12,- maar ook standalone 12,50 / 12.50
+// in een menucontext (wordt gecombineerd met hasMenuSection voor standalone prijzen)
+const PRICE_REGEX = /[€$£]\s?\d+(?:[.,]\d{0,2})?|\d+(?:[.,]\d{2})\s?[€$£]|\d+,-/g;
 const MENU_KEYWORDS = [
   'menu', 'gerechten', 'kaart', 'starters', 'hoofdgerecht', 'voorgerecht',
   'dessert', 'lunch', 'diner', 'pasta', 'pizza', 'entrée', 'plat', 'carte',
+  'à la carte', 'dagmenu', 'weekmenu', 'spijskaart',
 ];
+
+function hasPdfMenuLink($: cheerio.CheerioAPI): boolean {
+  return $('a').filter((_, el) => {
+    const href = ($(el).attr('href') || '').toLowerCase();
+    const linkText = $(el).text().toLowerCase();
+    const isPdf = href.endsWith('.pdf') || href.includes('.pdf?');
+    const isMenuRelated =
+      href.includes('menu') || href.includes('kaart') || href.includes('spijs') ||
+      linkText.includes('menu') || linkText.includes('kaart') || linkText.includes('menukaart') ||
+      linkText.includes('gerechten') || linkText.includes('eten') || linkText.includes('drinken');
+    return isPdf && isMenuRelated;
+  }).length > 0;
+}
 
 function checkMenu($: cheerio.CheerioAPI, text: string): { score: number; detail: string } {
   const prices = text.match(PRICE_REGEX) || [];
   const hasPrices = prices.length >= 3;
   const hasMenuSection = MENU_KEYWORDS.some(kw => text.includes(kw));
+  const pdfMenu = hasPdfMenuLink($);
+  const menuImages = $('img[alt*="menu" i], img[src*="menu" i]').length > 0;
 
+  // Beste geval: tekst met menu én prijzen zichtbaar
   if (hasPrices && hasMenuSection) return { score: 15, detail: 'prijzen_aanwezig' };
 
   if (hasMenuSection) {
+    // Menu gevonden, maar prijzen staan waarschijnlijk in een PDF
+    if (pdfMenu) return { score: 12, detail: 'pdf_menu' };
+
     const menuLinks = $('a').filter((_, el) => {
       const href = $(el).attr('href') || '';
       const linkText = $(el).text().toLowerCase();
@@ -25,9 +47,9 @@ function checkMenu($: cheerio.CheerioAPI, text: string): { score: number; detail
     return { score: menuLinks.length > 0 ? 10 : 7, detail: 'geen_prijzen' };
   }
 
-  const pdfLinks = $('a[href$=".pdf"], a[href*="menu"][href$=".pdf"]');
-  const menuImages = $('img[alt*="menu"], img[src*="menu"]');
-  if (pdfLinks.length > 0 || menuImages.length > 0) return { score: 5, detail: 'pdf_only' };
+  // Geen menuwoorden gevonden, maar er is wel een PDF of menu-afbeelding
+  if (pdfMenu) return { score: 8, detail: 'pdf_only' };
+  if (menuImages) return { score: 5, detail: 'afbeelding_only' };
 
   return { score: 0, detail: 'niet_gevonden' };
 }
@@ -105,8 +127,14 @@ function checkVerhaal(text: string): number {
 const RESERVATION_SYSTEMS = [
   'opentable.com', 'thefork.com', 'iens.nl', 'resy.com',
   'bookatable.com', 'zenchef.com', 'dimmi.com', 'quandoo.nl',
+  'resengo.com', 'formitable.com', 'guestonline.io', 'sevenrooms.com',
+  'eat-app.com', 'carbonara.app', 'tablein.com', 'resmio.com',
 ];
-const PHONE_RESERVE_REGEX = /(reserveer|boek|reservatie)[\s\S]{0,50}(bel|telefoon|0[1-9]\d{8})/i;
+
+// Reserveringswoorden die ergens op de pagina kunnen voorkomen
+const RESERVE_WORDS_REGEX = /\b(reserveer|reservering|reservatie|boek een tafel|tafel reserv|book a table|réservation)\b/i;
+// Telefoonnummer (NL)
+const PHONE_REGEX_SINGLE = /(\+31|0031|0)[1-9]([-\s]?\d){7,8}\b/;
 
 function checkReservering($: cheerio.CheerioAPI, text: string): { score: number; detail: string } {
   const hasThirdParty = RESERVATION_SYSTEMS.some(system =>
@@ -119,12 +147,34 @@ function checkReservering($: cheerio.CheerioAPI, text: string): { score: number;
       formText.includes('tafel') || formText.includes('personen');
   }).length > 0;
 
-  const hasTelReservation = PHONE_RESERVE_REGEX.test(text);
-  const hasEmailReservation = /mailto:.*(reserv|boek)/i.test(
-    $('a[href^="mailto"]').attr('href') || ''
-  );
+  // WhatsApp reserveringen (wa.me of api.whatsapp.com links)
+  const hasWhatsApp = $('a[href*="wa.me"], a[href*="api.whatsapp.com"], a[href*="whatsapp.com/send"]').length > 0
+    && RESERVE_WORDS_REGEX.test(text);
+
+  // Telefoon + reserveringswoord ergens op de pagina (los van afstand)
+  const hasPhone = $('a[href^="tel:"]').length > 0 || PHONE_REGEX_SINGLE.test(text);
+  const hasReserveWord = RESERVE_WORDS_REGEX.test(text);
+  const hasTelReservation = hasPhone && hasReserveWord;
+
+  // Email: kijk naar mailto-href én naar omliggende tekst van mailto-links
+  const hasEmailReservation = (() => {
+    let found = false;
+    $('a[href^="mailto"]').each((_, el) => {
+      const href = $(el).attr('href') || '';
+      const linkText = $(el).text().toLowerCase();
+      // het mailadres zelf bevat "reserv/boek", of de linktekst, of de context in de parent
+      const parentText = ($(el).parent().text() || '').toLowerCase();
+      if (/reserv|boek/i.test(href) || /reserv|boek/.test(linkText) || /reserv|boek/.test(parentText)) {
+        found = true;
+      }
+    });
+    // Ook: reserveringswoord + een mailto-link op de pagina
+    if (!found && hasReserveWord && $('a[href^="mailto"]').length > 0) found = true;
+    return found;
+  })();
 
   if (hasThirdParty || hasOwnForm) return { score: 12, detail: 'systeem' };
+  if (hasWhatsApp) return { score: 10, detail: 'whatsapp' };
   if (hasTelReservation) return { score: 8, detail: 'telefoon' };
   if (hasEmailReservation) return { score: 4, detail: 'email' };
   return { score: 0, detail: 'niet_gevonden' };
