@@ -12,14 +12,37 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Missing url" }, { status: 400 });
   }
 
-  // ── 1. HTML ophalen ────────────────────────────────────────────────────────
+  // ── 1. HTML ophalen (homepage + veelgebruikte subpagina's) ────────────────
+  const SUB_PATHS = [
+    '/contact', '/over-ons', '/over-ons/', '/about', '/about-us',
+    '/menu', '/menukaart', '/kaart', '/eten-drinken',
+    '/reserveren', '/reservering', '/boeken', '/table',
+    '/openingstijden', '/tijden', '/info', '/informatie',
+  ];
+
+  async function fetchPage(pageUrl: string): Promise<string> {
+    try {
+      const res = await fetch(pageUrl, {
+        headers: { "User-Agent": "RestaurantScanner/2.0 (website quality check)" },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) return "";
+      return await res.text();
+    } catch {
+      return "";
+    }
+  }
+
+  const base = url.replace(/\/$/, "");
+  const subUrls = SUB_PATHS.map(p => base + p);
+
   let html = "";
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "RestaurantScanner/2.0 (website quality check)" },
-      signal: AbortSignal.timeout(8000),
-    });
-    html = await res.text();
+    const [homepageHtml, ...subHtmls] = await Promise.all([
+      fetchPage(url),
+      ...subUrls.map(fetchPage),
+    ]);
+    html = [homepageHtml, ...subHtmls].filter(Boolean).join("\n");
   } catch {
     // Site niet bereikbaar — geef lege content checks
   }
