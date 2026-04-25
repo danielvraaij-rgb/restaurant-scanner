@@ -138,7 +138,7 @@ const PHONE_REGEX_SINGLE = /(\+31|0031|0)[1-9]([-\s]?\d){7,8}\b/;
 
 function checkReservering($: cheerio.CheerioAPI, text: string): { score: number; detail: string } {
   const hasThirdParty = RESERVATION_SYSTEMS.some(system =>
-    $(`a[href*="${system}"], iframe[src*="${system}"]`).length > 0
+    $(`a[href*="${system}"], iframe[src*="${system}"], script[src*="${system}"]`).length > 0
   );
 
   const hasOwnForm = $('form').filter((_, el) => {
