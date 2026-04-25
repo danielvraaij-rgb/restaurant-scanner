@@ -9,6 +9,13 @@ interface ManualScore {
   notes: string;
 }
 
+interface Criterium {
+  label: string;
+  score: number;
+  max: number;
+  detail?: string;
+}
+
 interface Restaurant {
   place_id: string;
   name: string;
@@ -33,6 +40,10 @@ function prospectLabel(s: number | null) {
 }
 
 // ─── Small Components ───────────────────────────────────────────────────────
+
+function humanDetail(s: string): string {
+  return s.replace(/_/g, ' ');
+}
 
 function ScoreRing({ score, size = 40 }: { score: number | null; size?: number }) {
   const color = score === null ? "#374151" : score >= 80 ? "#059669" : score >= 60 ? "#f59e0b" : score >= 40 ? "#ef4444" : "#dc2626";
