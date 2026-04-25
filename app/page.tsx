@@ -79,17 +79,49 @@ function Stars({ rating }: { rating: number }) {
 
 // ─── Pijler bar ─────────────────────────────────────────────────────────────
 
-function PijlerBar({ label, score, max }: { label: string; score: number; max: number }) {
+function PijlerBar({ label, score, max, criteria }: {
+  label: string; score: number; max: number; criteria: Criterium[];
+}) {
+  const [open, setOpen] = useState(false);
   const pct = Math.round((score / max) * 100);
   const color = pct >= 70 ? "#059669" : pct >= 40 ? "#f59e0b" : "#ef4444";
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-gray-400 w-20 shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 bg-[#1f2937] rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${pct}%`, background: color }}/>
+    <div>
+      <div className="flex items-center gap-2 cursor-pointer select-none"
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}>
+        <span className="text-xs text-gray-400 w-20 shrink-0">{label}</span>
+        <div className="flex-1 h-1.5 bg-[#1f2937] rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${pct}%`, background: color }}/>
+        </div>
+        <span className="text-xs font-mono text-gray-400 w-10 text-right">{score}/{max}</span>
+        <span className="text-[10px] text-gray-600 w-3 text-center">{open ? '▴' : '▾'}</span>
       </div>
-      <span className="text-xs font-mono text-gray-400 w-10 text-right">{score}/{max}</span>
+      {open && (
+        <div className="mt-1.5 pl-3 border-l border-[#1e2028] flex flex-col gap-1">
+          {criteria.map(c => {
+            const cPct = c.max > 0 ? Math.round((c.score / c.max) * 100) : 0;
+            const cColor = cPct >= 70 ? "#059669" : cPct >= 40 ? "#f59e0b" : "#ef4444";
+            return (
+              <div key={c.label} className="flex items-center gap-2">
+                <span className="text-[11px] text-gray-500 w-20 shrink-0">{c.label}</span>
+                <div className="w-16 h-1 bg-[#1f2937] rounded-full overflow-hidden">
+                  <div className="h-full rounded-full"
+                    style={{ width: `${cPct}%`, background: cColor }}/>
+                </div>
+                <span className="text-[11px] font-mono text-gray-500 w-8 text-right">
+                  {c.score}/{c.max}
+                </span>
+                {c.detail && (
+                  <span className="text-[11px] text-gray-600 font-mono ml-1">
+                    {humanDetail(c.detail)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
