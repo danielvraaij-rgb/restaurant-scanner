@@ -207,16 +207,31 @@ function Card({ restaurant, onAnalyze, onManual, busy }: {
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
-                  <PijlerBar label="Inhoud" score={a.pijlers.inhoud} max={45}/>
-                  <PijlerBar label="Conversie" score={a.pijlers.conversie} max={25}/>
-                  <PijlerBar label="UX" score={a.pijlers.ux} max={20}/>
-                  <PijlerBar label="Techniek" score={a.pijlers.tech} max={10}/>
+                  <PijlerBar label="Inhoud" score={a.pijlers.inhoud} max={45} criteria={[
+                    { label: 'Menu', score: a.checks.menuScore, max: 15, detail: a.checks.menuDetail },
+                    { label: 'Adres', score: a.checks.adresScore, max: 10 },
+                    { label: 'Tijden', score: a.checks.tijdenScore, max: 10 },
+                    { label: "Foto's", score: a.checks.fotoScore, max: 5 },
+                    { label: 'Verhaal', score: a.checks.verhaalScore, max: 5 },
+                  ]}/>
+                  <PijlerBar label="Conversie" score={a.pijlers.conversie} max={25} criteria={[
+                    { label: 'Reservering', score: a.checks.reserveringScore, max: 12, detail: a.checks.reserveringDetail },
+                    { label: 'Telefoon', score: a.checks.telefoonScore, max: 8 },
+                    { label: 'E-mail', score: a.checks.emailScore, max: 5 },
+                  ]}/>
+                  <PijlerBar label="UX" score={a.pijlers.ux} max={20} criteria={[
+                    { label: 'Mobiel', score: a.checks.mobileScore, max: 10, detail: a.checks.mobileDetail },
+                    { label: 'Snelheid', score: a.checks.speedScore, max: 7, detail: `${a.checks.lcpMs}ms` },
+                    { label: 'Dead links', score: a.checks.deadLinkScore, max: 3 },
+                  ]}/>
+                  <PijlerBar label="Techniek" score={a.pijlers.tech} max={10} criteria={[
+                    { label: 'HTTPS', score: a.checks.httpsScore, max: 5 },
+                    { label: 'Meta desc.', score: a.checks.metaDescScore, max: 3 },
+                    { label: 'Structured', score: a.checks.structuredScore, max: 2 },
+                  ]}/>
                   <div className="mt-2 pt-2 border-t border-[#1e2028] flex justify-between text-xs font-mono">
                     <span className="text-gray-500">Totaal</span>
                     <span className="text-gray-300">{a.totaalScore}/100</span>
-                  </div>
-                  <div className="text-[10px] text-gray-600 font-mono mt-1">
-                    Menu: {a.checks.menuDetail} · Reservering: {a.checks.reserveringDetail} · LCP: {a.checks.lcpMs}ms
                   </div>
                 </div>
               )}
