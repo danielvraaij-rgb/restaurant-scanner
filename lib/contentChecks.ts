@@ -60,12 +60,28 @@ const STREET_REGEX = /[A-Z][a-z]+(?:straat|weg|laan|plein|dijk|kade|gracht|steeg
 const POSTCODE_REGEX = /\b[1-9]\d{3}\s?[A-Z]{2}\b/;
 
 function checkAdres($: cheerio.CheerioAPI, text: string): number {
-  const hasMapsLink = $('a[href*="maps.google"], a[href*="goo.gl/maps"], a[href*="maps.app.goo"]').length > 0;
+  const hasMapsLink = $('a[href*="maps.google"], a[href*="goo.gl/maps"], a[href*="maps.app.goo"], a[href*="apple.com/maps"], a[href*="waze.com"]').length > 0;
   const hasMapsEmbed = $('iframe[src*="maps.google"], iframe[src*="google.com/maps"]').length > 0;
   const hasStreet = STREET_REGEX.test(text);
   const hasPostcode = POSTCODE_REGEX.test(text);
 
-  if ((hasStreet || hasPostcode) && (hasMapsLink || hasMapsEmbed)) return 10;
+  // JSON-LD schema.org adresdata
+  const hasSchemaAddress = (() => {
+    let found = false;
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const data = JSON.parse($(el).html() || '');
+        const entries = Array.isArray(data) ? data : [data];
+        for (const entry of entries) {
+          if (entry?.address || entry?.['@type'] === 'PostalAddress') { found = true; break; }
+        }
+      } catch { /* invalid JSON */ }
+    });
+    return found;
+  })();
+
+  if ((hasStreet || hasPostcode || hasSchemaAddress) && (hasMapsLink || hasMapsEmbed)) return 10;
+  if (hasSchemaAddress) return 10;
   if (hasStreet && hasPostcode) return 6;
   if (hasStreet || hasPostcode) return 3;
   return 0;
@@ -73,16 +89,32 @@ function checkAdres($: cheerio.CheerioAPI, text: string): number {
 
 // ─── Openingstijden detectie (0-10 punten) ───────────────────────────────────
 
-const TIME_REGEX = /\b(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/g;
-const DAYS_REGEX = /\b(maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|di|wo|do|vr|za|zo|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi;
+// Tijdformaten: "11:00 - 20:00", "11.00-20.00", maar ook "11-20 uur"
+const TIME_REGEX = /(?:\b(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})|\b\d{1,2}\s*[-–]\s*\d{1,2}\s*uur)/g;
+const DAYS_REGEX = /\b(maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|di|wo|do|vr|za|zo|zon|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi;
 
 function checkTijden($: cheerio.CheerioAPI, text: string): number {
   const timeMatches = text.match(TIME_REGEX) || [];
   const dayMatches = text.match(DAYS_REGEX) || [];
   const hasSchemaHours = $('[itemprop="openingHours"], [itemprop="openingHoursSpecification"]').length > 0;
 
-  if (dayMatches.length >= 3 && timeMatches.length >= 3) return 10;
-  if (hasSchemaHours) return 10;
+  // JSON-LD openingsuren
+  const hasJsonLdHours = (() => {
+    let found = false;
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const data = JSON.parse($(el).html() || '');
+        const entries = Array.isArray(data) ? data : [data];
+        for (const entry of entries) {
+          if (entry?.openingHours || entry?.openingHoursSpecification) { found = true; break; }
+        }
+      } catch { /* invalid JSON */ }
+    });
+    return found;
+  })();
+
+  if (hasSchemaHours || hasJsonLdHours) return 10;
+  if (dayMatches.length >= 3 && timeMatches.length >= 1) return 10;
   if (dayMatches.length > 0 && timeMatches.length > 0) return 6;
   if (timeMatches.length > 0) return 3;
   return 0;
